@@ -7,7 +7,6 @@ from Src.Core.prototype import prototype
 from Src.Core.observe_service import observe_service
 from Src.reposity_manager import reposity_manager
 from Src.Core.validator import validator, operation_exception, argument_exception
-from Src.Logics.rest_service import rest_service
 
 from Src.Dtos.nomenclature_dto import nomenclature_dto
 from Src.Dtos.range_dto import range_dto
@@ -50,7 +49,7 @@ class reference_service(abstract_logic):
     __repo: reposity_manager = reposity_manager()
 
     def __init__(self):
-        observe_service.add(self)
+        pass
 
     @staticmethod
     def _normalise_type(reference_type: str) -> str:
@@ -99,30 +98,19 @@ class reference_service(abstract_logic):
     def _save_settings(self, payload: Dict[str, Any]) -> None:
         """
         Сохраняет информацию о последнем изменении справочника
-        в appsettings.json или через settings_manager, если он доступен
         """
-        try:
-            from Src.settings_manager import settings_manager
-            sm = settings_manager()
-            sm.settings.last_reference_change = payload
-            if hasattr(sm, "save_to_file"):
-                try:
-                    sm.save_to_file(SETTINGS_FILE)
-                    return
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
         try:
             try:
                 with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
                     cfg = json.load(f)
             except Exception:
                 cfg = {}
+
             cfg["last_reference_change"] = payload
+
             with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
                 json.dump(cfg, f, ensure_ascii=False, indent=2)
+
         except Exception:
             pass
 
@@ -331,12 +319,6 @@ class reference_service(abstract_logic):
         except Exception:
             pass
 
-        # Пересчитываем данные через rest_service
-        try:
-            rest_service().calc()
-        except Exception:
-            pass
-
         # Логируем изменение
         payload = {
             "type": reference_type,
@@ -389,13 +371,3 @@ class reference_service(abstract_logic):
         observe_service.create_event("reference_deleted", {"type": reference_type, "id": item_id})
         return True
 
-    def handle(self, event: str, params: Dict[str, Any]):
-        """
-        Обработка событий от observe_service
-        Например, при изменении даты блокировки пересчитываем rest_service
-        """
-        if event == "lock_date_changed":
-            try:
-                rest_service().calc()
-            except Exception:
-                pass
