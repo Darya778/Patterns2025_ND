@@ -1,51 +1,70 @@
-import json
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Type, Tuple
 
 from Src.Core.abstract_logic import abstract_logic
 from Src.Core.prototype import prototype
 from Src.Core.observe_service import observe_service
-from Src.reposity_manager import reposity_manager
 from Src.Core.validator import validator, operation_exception, argument_exception
+
+from Src.reposity_manager import reposity_manager
 
 from Src.Dtos.nomenclature_dto import nomenclature_dto
 from Src.Dtos.range_dto import range_dto
 from Src.Dtos.category_dto import category_dto
 from Src.Dtos.storage_dto import storage_dto
+from Src.Dtos.event_dto import event_dto
 
 from Src.Models.nomenclature_model import nomenclature_model
 from Src.Models.range_model import range_model
 from Src.Models.group_model import group_model
 from Src.Models.storage_model import storage_model
 
-SETTINGS_FILE = "appsettings.json"
-
 class reference_factory:
     """
     Простая фабрика для создания моделей из DTO.
     Отделяет знание о типах от сервиса.
     """
-    mapping = {
+    _mapping: Dict[str, Tuple[Type, Type]] = {
         "nomenclature": (nomenclature_dto, nomenclature_model),
         "range": (range_dto, range_model),
         "unit": (range_dto, range_model),
         "group": (category_dto, group_model),
         "category": (category_dto, group_model),
         "storage": (storage_dto, storage_model),
-        "warehouse": (storage_dto, storage_model)
+        "warehouse": (storage_dto, storage_model),
     }
 
     @staticmethod
-    def normalise_type(reference_type: str) -> str:
-        return (reference_type or "").strip().lower()
+    def normalize(type_name: str) -> str:
+        return (type_name or "").strip().lower()
 
     @classmethod
-    def resolve(cls, reference_type: str):
-        t = cls.normalise_type(reference_type)
-        for k in cls.mapping:
-            if t == k or t.startswith(k):
-                return cls.mapping[k]
-        return None
+    def resolve(cls, reference_type: str) -> Tuple[Type, Type]:
+        norm = cls.normalize(reference_type)
+
+        for key, pair in cls._mapping.items():
+            if norm == key or norm.startswith(key):
+                return pair
+        raise argument_exception(f"Unknown reference_type: {reference_type}")
+
+    @staticmethod
+    def model_to_dto(model_obj: Any, dto_cls: Type):
+        return dto_cls(
+            **{
+                field: getattr(model_obj, field)
+                for field in dto_cls.__annotations__.keys()
+                if hasattr(model_obj, field)
+            }
+        )
+
+    @staticmethod
+    def dto_to_model(dto_obj: Any, model_cls: Type):
+        return model_cls(
+            **{
+                field: getattr(dto_obj, field)
+                for field in dto_obj.__dict__.keys()
+                if not field.startswith("_")
+            }
+        )
 
 class reference_service(abstract_logic):
     """
@@ -70,19 +89,18 @@ class reference_service(abstract_logic):
 
     def _map_type_to_repo_key(self, reference_type: str) -> str:
         """
-        Определяет ключ репозитория по типу справочника
+        Возвращает ключ репозитория по типу справочника
         """
-        t = reference_factory.normalise_type(reference_type)
-        rm = self._repo
+        norm = reference_factory.normalize(reference_type)
 
-        if "nomen" in t:
-            return rm.nomenclature_key()
-        if "range" in t or t in ("unit", "units"):
-            return rm.range_key()
-        if "group" in t or "category" in t:
-            return rm.group_key()
-        if "stor" in t or "warehouse" in t:
-            return rm.storage_key()
+        if "nomen" in norm:
+            return self._repo.nomenclature_key()
+        if "range" in norm or norm in ("unit", "units"):
+            return self._repo.range_key()
+        if "group" in norm or "category" in norm:
+            return self._repo.group_key()
+        if "stor" in norm or "warehouse" in norm:
+            return self._repo.storage_key()
 
         raise argument_exception(f"Unknown reference type: {reference_type}")
 
@@ -92,121 +110,88 @@ class reference_service(abstract_logic):
         - item_id: если указан, вернет конкретный элемент
         - filter_dto: если указан, применяет фильтр через prototype
         """
+        dto_cls, _ = self._factory.resolve(reference_type)
         key = self._map_type_to_repo_key(reference_type)
-        data = list(self._repo.data.get(key, []))
+
+        models: List[Any] = list(self._repo.data.get(key, []))
+        dtos = [self._factory.model_to_dto(m, dto_cls) for m in models]
 
         if item_id:
-            return [x for x in data if getattr(x, "unique_code", None) == item_id]
+            return [x for x in dtos if getattr(x, "unique_code", None) == item_id]
 
-        if filter_dto is not None:
-            return prototype.filter(data, filter_dto)
+        if filter_dto:
+            return prototype.filter(dtos, filter_dto)
 
-        return data
+        return dtos
 
     def add(self, reference_type: str, dto) -> Any:
         """
         Добавление нового элемента справочника
         """
-        validator.validate(dto, object)
-        resolved = self._factory.resolve(reference_type)
-        if not resolved:
-            raise argument_exception("Unsupported reference type")
-        dto_cls, model_cls = resolved
+        dto_cls_name, model_cls_name = self._factory.resolve(reference_type)
+        dto_cls = globals().get(dto_cls_name)
+        if dto_cls is None:
+            raise argument_exception("DTO class not found for type")
         validator.validate(dto, dto_cls)
 
-        key = self._map_type_to_repo_key(reference_type)
+        repo_key = self._map_type_to_repo_key(reference_type)
+        unique = getattr(dto, "unique_code", None)
+        for m in self._repo.data.get(repo_key, []):
+            if getattr(m, "unique_code", None) == unique:
+                raise operation_exception(f"Item with unique_code '{unique}' already exists")
 
-        instance = model_cls(**{k: getattr(dto, k) for k in dto.__dict__ if not k.startswith('_')})
-        self._repo.data.setdefault(key, []).append(instance)
+        model_cls = globals().get(model_cls_name)
+        model_obj = self._factory.dto_to_model(dto, model_cls) if model_cls else dto
 
-        payload = {
-            "type": reference_type,
-            "action": "add",
-            "id": getattr(instance, "unique_code", None),
-            "ts": datetime.utcnow().isoformat()
-        }
+        self._repo.data.setdefault(repo_key, []).append(model_obj)
 
-        try:
-            self._observer.create_event("reference_added", {"type": reference_type, "item": instance, "meta": payload})
-        except Exception:
-            pass
+        evt = event_dto("reference_added", dto)
+        self._observer.create_event(evt)
+        return dto
 
-        return instance
-
-    def update(self, reference_type: str, item_id: str, partial_payload: Dict[str, Any]) -> Any:
+    def update(self, reference_type: str, item_id: str, dto_updates) -> Any:
         """
         Частичное обновление элемента справочника
         """
-        key = self._map_type_to_repo_key(reference_type)
-        arr = self._repo.data.get(key, [])
-        target = next((x for x in arr if getattr(x, "unique_code", None) == item_id), None)
+        dto_cls, model_cls = self._factory.resolve(reference_type)
+        repo_key = self._map_type_to_repo_key(reference_type)
 
-        if target is None:
-            raise operation_exception(f"Item {item_id} not found in {reference_type}")
+        models = self._repo.data.get(repo_key, [])
+        target = next((m for m in models if getattr(m, "unique_code", None) == item_id), None)
 
-        for k, v in (partial_payload or {}).items():
-            if hasattr(target, k):
-                setattr(target, k, v)
+        if not target:
+            raise operation_exception(f"Item '{item_id}' not found")
 
-        payload = {
-            "type": reference_type,
-            "action": "update",
-            "id": item_id,
-            "payload": partial_payload,
-            "ts": datetime.utcnow().isoformat()
-        }
+        for field, value in dto_updates.__dict__.items():
+            if not field.startswith("_") and hasattr(target, field):
+                setattr(target, field, value)
 
-        try:
-            self._observer.create_event("reference_updated", {"type": reference_type, "id": item_id,
-                                                              "payload": partial_payload, "meta": payload})
-        except Exception:
-            pass
-
-        return target
+        updated_dto = self._factory.model_to_dto(target, dto_cls)
+        self._observer.create_event("reference_updated", updated_dto)
+        return updated_dto
 
     def delete(self, reference_type: str, item_id: str) -> bool:
         """
         Удаление элемента справочника
         Если элемент используется в других сущностях, выбрасывается ошибка
         """
-        key = self._map_type_to_repo_key(reference_type)
-        arr = self._repo.data.get(key, [])
-        target = next((x for x in arr if getattr(x, "unique_code", None) == item_id), None)
+        repo_key = self._map_type_to_repo_key(reference_type)
+        dto_cls, _ = self._factory.resolve(reference_type)
 
-        if target is None:
-            raise operation_exception(f"Item {item_id} not found in {reference_type}")
+        models = self._repo.data.get(repo_key, [])
+        target = next((m for m in models if getattr(m, "unique_code", None) == item_id), None)
 
-        if key == reposity_manager.nomenclature_key():
-            for r in self._repo.data.get(reposity_manager.receipt_key(), []):
-                try:
-                    for comp in getattr(r, "composition", []):
-                        if comp.get("nomenclature_id") == item_id:
-                            raise operation_exception(
-                                f"Cannot delete nomenclature {item_id}: used in receipt {getattr(r, 'unique_code', None)}"
-                            )
-                except Exception:
-                    pass
+        if not target:
+            raise operation_exception(f"Item '{item_id}' not found")
 
-            for t in self._repo.data.get(reposity_manager.transaction_key(), []):
-                if getattr(t, "nomenclature_id", None) == item_id:
-                    raise operation_exception(
-                        f"Cannot delete nomenclature {item_id}: used in transaction {getattr(t, 'unique_code', None)}"
-                    )
+        dto_obj = self._factory.model_to_dto(target, dto_cls) if dto_cls else target
 
-        self._repo.data[key] = [x for x in arr if getattr(x, "unique_code", None) != item_id]
+        validation_evt = event_dto("reference_delete_validation", dto_obj)
+        self._observer.create_event(validation_evt)
 
-        payload = {
-            "type": reference_type,
-            "action": "delete",
-            "id": item_id,
-            "ts": datetime.utcnow().isoformat()
-        }
+        self._repo.data[repo_key] = [m for m in models if getattr(m, "unique_code", None) != item_id]
 
-        try:
-            self._observer.create_event("reference_deleted",
-                                        {"type": reference_type, "id": item_id, "meta": payload})
-        except Exception:
-            pass
-
+        deleted_evt = event_dto("reference_deleted", dto_obj)
+        self._observer.create_event(deleted_evt)
         return True
 
