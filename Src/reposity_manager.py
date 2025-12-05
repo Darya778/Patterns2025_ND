@@ -38,8 +38,7 @@ class reposity_manager(abstract_manager):
         
     """
     Ключ для транзакций
-    """
-    @staticmethod
+    """    
     def transaction_key():
         return "transaction_key"    
     
@@ -62,7 +61,6 @@ class reposity_manager(abstract_manager):
     """
     Ключ для остатков
     """
-    @staticmethod
     def rest_key():
         return "rest_key"
     
@@ -73,69 +71,52 @@ class reposity_manager(abstract_manager):
     @staticmethod
     def keys() -> list:
         result = []
-        methods = [
-            method for method in dir(reposity_manager)
-            if callable(getattr(reposity_manager, method)) and method.endswith("_key")
-        ]
-
+        methods = [method for method in dir(reposity_manager) if
+                    callable(getattr(reposity_manager, method)) and method.endswith('_key')]
         for method in methods:
             key = getattr(reposity_manager, method)()
             result.append(key)
 
         return result
+
     
     """
     Инициализация
     """
     def initalize(self):
-        for key in reposity_manager.keys():
-            self.__data[key] = []
+        keys = reposity_manager.keys()
+        for key in keys:
+            self.__data[ key ] = []
 
 
     """
     Загрузить данные
     """
     def load(self) -> bool:
-        if getattr(self, "file_name", "") == "":
-            raise operation_exception("Не найден файл настроек!")
-
-        try:
-            with open(self.file_name, "r", encoding="utf-8") as f:
-                text = f.read()
-        except FileNotFoundError:
-            self.initalize()
-            return False
-
-        try:
-            raw_data = json.loads(text)
-        except Exception:
-            raise operation_exception("Ошибка чтения JSON из файла!")
-
-        for key in reposity_manager.keys():
-            self.data[key] = raw_data.get(key, [])
-
-        return True
+        pass
 
     """
     Сохранить данные
     """
     def save(self) -> bool:
-        if getattr(self, "file_name", "") == "":
+        if self.file_name == "":
             raise operation_exception("Не найден файл настроек!")
 
-        factory = convert_factory()
         result = {}
-
+        factory = convert_factory() 
+        
+        # Формируем общий словарь
         for key in reposity_manager.keys():
-            models = self.__data.get(key, [])
-            dto_objects = common.models_to_dto(models)
-            result[key] = factory.serialize(dto_objects)
+            models = self.data[ key  ]
+            dtos = common.models_to_dto( models)
+            data = factory.serialize( dtos )
+            result[ key ] = data
 
+        # Сохраняю полученные данные
         text = json.dumps(result, ensure_ascii=False, indent=4)
-
         try:
-            with open(self.file_name, "w", encoding="utf-8") as f:
-                f.write(text)
+            with open( self.file_name, 'w', encoding='utf-8') as file_instance:
+                file_instance.write(text)
             return True
-        except Exception:
-            return False
+        except:
+            return False    

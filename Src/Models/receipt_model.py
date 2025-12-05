@@ -75,6 +75,6 @@ class receipt_model(entity_model):
         item.cooking_time = dto.cooking_time
         item.portions = dto.portions
         item.steps = dto.steps
-        item._receipt_model__composition = getattr(dto, "composition", [])
 
+        
         return item
