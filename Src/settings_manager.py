@@ -7,6 +7,7 @@ from Src.Core.response_formats import response_formats
 import json
 from datetime import datetime
 from Src.Core.abstract_manager import abstract_manager
+from Src.Logics.logging_service import emit
 
 ####################################################3
 # Менеджер настроек. 
@@ -56,6 +57,8 @@ class settings_manager(abstract_manager):
                     date_format = "%Y-%m-%d"
                     date = datetime.strptime(data, date_format)
                     self.__settings.block_period = date
+
+                emit('INFO', 'Settings loaded', {'file': self.file_name})
                 return result
             return False
         except:

@@ -1,0 +1,7 @@
+2025-12-06 16:00:30 [DEBUG] Debug message 
+2025-12-06 16:00:30 [INFO] Info message 
+2025-12-06 16:00:30 [ERROR] Error message 
+2025-12-06 16:00:30 [INFO] Message with meta {"user": "tester", "action": "test"}
+2025-12-06 16:00:30 [INFO] Emit test message {"key": "value"}
+2025-12-06 16:00:30 [INFO] Emit test message {"key": "value"}
+2025-12-06 16:00:30 [INFO] Emit test message {"key": "value"}
