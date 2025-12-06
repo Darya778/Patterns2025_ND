@@ -1,9 +1,11 @@
 import connexion
 from flask import request
 from Src.Logics.logging_service import emit, logging_service
+from Src.Core.observe_service import observe_service
 
 app = connexion.FlaskApp(__name__)
-logging_service()
+log_service = logging_service()
+
 
 """
 Проверить доступность REST API
@@ -20,3 +22,4 @@ def formats():
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port = 8080)
+    emit('INFO', 'Server started')
