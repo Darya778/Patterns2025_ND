@@ -3,7 +3,7 @@ from Src.Core.observe_service import observe_service
 from Src.Core import log_levels
 from Src.settings_manager import settings_manager
 from datetime import datetime
-import os
+import os, sys
 
 class logging_service(abstract_logic):
     """
@@ -83,7 +83,8 @@ class logging_service(abstract_logic):
 
         line = self.format.replace('{date}', date_str).replace('{level}', level).replace('{message}', str(message)).replace('{meta}', meta_str)
         if self.mode == 'console':
-            print(line)
+            sys.stdout.write(line + '\n')
+            sys.stdout.flush()
         else:
             os.makedirs(self.log_dir, exist_ok=True)
             file_log_name = os.path.join(self.log_dir, 'app.log')
