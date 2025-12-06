@@ -5,5 +5,11 @@
         "inn":123456789
     },
     "default_format":"markdown",
-    "block_period":"2025-02-10"
+    "block_period":"2025-02-10",
+    "logging": {
+        "min_level": "DEBUG",
+        "mode": "file",
+        "directory": "./logs",
+        "format": "{date} [{level}] {message} {meta}"
+    }
 }
