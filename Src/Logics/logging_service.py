@@ -24,20 +24,24 @@ class logging_service(abstract_logic):
     def reload_settings(self):
         try:
             sm = settings_manager()
+            if not sm.settings:
+                sm.file_name = os.path.join(os.getcwd(), 'settings.json')
+                sm.load()
             s = sm.settings
         except Exception:
             s = None
         # defaults
         self.level = getattr(log_levels, 'INFO')
-        self.mode = 'console'  # or 'file'
+        self.mode = 'file'
         self.log_dir = os.path.join(os.getcwd(), 'logs')
         self.format = '{date} [{level}] {message} {meta}'
+
         if s is not None:
             cfg = getattr(s, 'logging', None) or {}
             level_name = cfg.get('min_level','INFO')
             self.level = getattr(log_levels, level_name.upper(), log_levels.INFO)
-            self.mode = cfg.get('mode','console').lower()
-            self.log_dir = cfg.get('directory', self.log_dir)
+            self.mode = cfg.get('mode','file').lower()
+            self.log_dir = os.path.abspath(cfg.get('directory', self.log_dir))
             self.format = cfg.get('format', self.format)
 
     def handle(self, event: str, params):
@@ -82,9 +86,10 @@ class logging_service(abstract_logic):
             print(line)
         else:
             os.makedirs(self.log_dir, exist_ok=True)
-            fname = os.path.join(self.log_dir, now.strftime('log_%Y-%m-%d.log'))
-            with open(fname, 'a', encoding='utf-8') as f:
-                f.write(line + '\\n')
+            file_log_name = os.path.join(self.log_dir, 'app.log')
+            with open(file_log_name, 'a', encoding='utf-8') as f:
+                f.write(line + '\n')
+
 
 # вспомогательная функция для других модулей для emit журналов через observe_service
 def emit(level, message, meta=None):
